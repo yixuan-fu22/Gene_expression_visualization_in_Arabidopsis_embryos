@@ -1,0 +1,111 @@
+---
+title: "Sleuth"
+output: html_document
+date: "2024-02-26"
+---
+
+This script use sleuth to read kallisto output files, and export the tpm matrix
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load renv
+```{r}
+library(renv)
+renv::activate()
+```
+# Load packages
+```{r}
+source("./load_libraries.R")
+#renv::snapshot()
+```
+
+```{r}
+# kallisto file path
+sample_id <- dir(file.path("..", "results", "kallisto"))
+kal_dirs <- file.path("..", "results", "kallisto", sample_id)
+id_and_dirs <- data.frame(sample_id, kal_dirs)
+```
+
+```{r}
+# load sample info
+sample_info <- read.table(file.path("..", "meta" ,"embryo_SraRunTable.txt"), sep = "," , header = TRUE) 
+sample_info <- sample_info %>% dplyr::select(c(Run, Ecotype, genotype, tissue)) %>% dplyr::rename(sample_id = Run)
+sample_info <- merge(sample_info, id_and_dirs)
+```
+
+### Use sleuth to read the output files of kallitsto
+```{r}
+s2c <- sample_info %>% dplyr::select(sample = sample_id, condition = tissue, path = kal_dirs)
+so <- sleuth_prep(s2c, extra_bootstrap_summary = TRUE)
+sleuth_matrix_raw <- sleuth_to_matrix(so, which_df = "obs_raw", which_units = "tpm") %>% as.data.frame()
+```
+
+```{r}
+# check if sum is 1,000,000
+colSums(sleuth_matrix_raw)
+```
+
+```{r}
+# add geneid and chromosome conversion
+refseq_to_geneid <- read.table(file.path("..","reference_data","kallisto_index","refseq_to_geneid.tsv"), sep = "\t") %>% rename(V1="chromosome", V2="TAIR", V3="refseq")
+counting_matrix <- merge(sleuth_matrix_raw, refseq_to_geneid, by.x = "row.names", by.y = "refseq", all.x = TRUE)
+#check if there are NAs
+sum(is.na(counting_matrix$TAIR))
+# chromosome names
+refseq_to_chr <- read.table(file.path("..","reference_data","kallisto_index","refseq_to_chr.tsv"), sep = "\t", header = TRUE)
+counting_matrix <- merge(counting_matrix, refseq_to_chr, by.x = "chromosome", by.y = "refseq", all.x = TRUE) %>% rename(chromosome = "chromosome.refseq", chromosome.y = "chr", Row.names = "refseq.id") %>% mutate(TAIR = ifelse(is.na(TAIR),refseq.id,TAIR))
+sum(is.na(counting_matrix$TAIR))
+```
+```{r}
+# check data type is numeric
+# for (i in colnames(counting_matrix)) {
+#   print(i)
+#   print(typeof(counting_matrix[[i]]))
+# }
+```
+
+```{r}
+# remove mitochondria and chloroplast genes
+counting_matrix <- counting_matrix %>% dplyr::filter(! chr %in% c("ChrC","ChrM"))
+# ChrC and ChrM not found. Maybe they were excluded in the fasta file
+#
+# calculate gene tpm from transcript tpm
+gene_tpm_matrix <- counting_matrix %>%
+  dplyr::select(-c(chromosome.refseq, refseq.id, chr)) %>%
+  aggregate(. ~ TAIR, ., FUN = sum)
+# check if col sum is still 1 Million
+colSums(gene_tpm_matrix %>% dplyr::select(-c(TAIR)))
+```
+
+```{r}
+# write all the genes into the expression matrix
+expression <- gene_tpm_matrix %>% t()
+colnames(expression) <- expression[1, ]
+expression <- expression[-1, ]
+expression <- merge(expression, sample_info %>% dplyr::select(sample_id, tissue), by.x = 0, by.y = "sample_id", all.x = TRUE) %>% rename("Row.names" = "sample")
+tissue <- sample_info$tissue %>% unique()
+tissue_short <- c("pre-G","G","EH","LH","ET","LT","BC","MG")
+expression <- left_join(expression, cbind(tissue, tissue_short) %>% as.data.frame(), by = join_by(tissue))
+```
+### Write the expression matrix to a file
+next time the script can start from reading in the txt
+```{r}
+write.table(expression, file = file.path("../results/tpm","embryos.tpm.csv"),sep = ",", col.names = TRUE, row.names = FALSE)
+```
+
+```{r}
+source("./make_boxplot.R")
+source("./symbol_tair_conversion.R")
+```
+
+# test: making a bar plot for selected gene (TAIR number)
+```{r}
+tair_number <- c("AT1G02580", "AT5G10140")
+gene_symbol <- c("MEA", "FLC")
+for(i in 1:length(tair_number)){
+  make_boxplot(tair_number[i], gene_symbol[i], expression)
+}
+```
+
