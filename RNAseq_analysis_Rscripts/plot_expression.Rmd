@@ -1,0 +1,29 @@
+---
+title: "plot_expression.Rmd"
+output: html_document
+date: "2024-02-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This Script read expression (tpm) matrix made by Sleuth.Rmd, and make box/heat plots to visualize expression in different tissues
+
+### Load renv
+```{r}
+library(renv)
+renv::activate()
+#rm(list = ls())
+```
+
+### Load libraries
+```{r}
+source("./load_libraries.R")
+```
+
+
+
+

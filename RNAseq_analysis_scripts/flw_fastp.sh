@@ -1,0 +1,1 @@
+for i in *.fastq;do fastp -w 16 -l 30 --trim_poly_x --poly_x_min_len 32 -h ../../../logs/flw_fastp_logs/SRR6294485.fastq.html -j ../../../logs/flw_fastp_logs/SRR6294485.fastq.json -i SRR6294485.fastq -o ../../../results/flw_fastq/SRR6294485.fastq; done
